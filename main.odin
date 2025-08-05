@@ -40,10 +40,13 @@ hud_state: Hud_State_Set = {.Start}
 
 hud_command :: []cstring{"Barracks", "Archery", "Cavalry"}
 hud_start :: []cstring{"Start"}
-
+hud_shop :: []cstring{"pork", "upgrade"}
 
 hud_alignment_command: f32 = -500
 hud_destination_command: f32 = hud_alignment_command // start the same
+
+hud_alignment_shop: f32 = SCREEN_X + 200
+hud_destination_shop: f32 = hud_alignment_shop
 
 main :: proc() {
 	rl.InitWindow(SCREEN_X, SCREEN_Y, "pwdm")
@@ -53,13 +56,26 @@ main :: proc() {
 	button_texture := rl.LoadTexture("resources/button.png")
 
 	main_menu: #soa[dynamic]Button
-	Button_Make_Main_Menu(&main_menu, button_texture)
+	Make_Button(
+		&main_menu,
+		button_texture,
+		hud_start,
+		f32(SCREEN_X / 2 - button_texture.width / 2),
+		f32(SCREEN_Y / 2 - button_texture.height),
+	)
 
 	command_menu: #soa[dynamic]Button
 	Make_Button(&command_menu, button_texture, hud_command, hud_alignment_command, 0)
 
+	shop_menu: #soa[dynamic]Button
+	Make_Button(&shop_menu, button_texture, hud_shop, hud_alignment_shop, 0)
+
 	for !rl.WindowShouldClose() {
 		Hud_Move(&hud_alignment_command, &hud_destination_command)
+		// fmt.println(hud_alignment_shop, hud_destination_shop)
+		// fmt.println(shop_menu)
+		Hud_Move(&hud_alignment_shop, &hud_destination_shop)
+
 		mousepoint := GetMousePosition()
 		if .Start in hud_state {
 			for &button in main_menu {
@@ -74,27 +90,45 @@ main :: proc() {
 
 				if button.action {
 					hud_destination_command = 0
-					hud_state = (hud_state | {.Command}) &~ {.Start}
+					hud_state = hud_state &~ {.Start}
 					clear(&main_menu)
 				}
 
 			}
 		}
-		if .Command in hud_state {
-			for &button in command_menu {
-				button.state = 0 // TODO change this to a bitset
-				button.bounds.x = hud_alignment_command
+		for &button in command_menu {
+			button.state = 0 // TODO change this to a bitset
+			button.bounds.x = hud_alignment_command
 
-				if CheckCollisionPointRec(mousepoint, button.bounds) {
-					button.state = IsMouseButtonDown(.LEFT) ? 2 : 1
-					button.action = IsMouseButtonReleased(.LEFT)
-				}
+			if CheckCollisionPointRec(mousepoint, button.bounds) {
+				button.state = IsMouseButtonDown(.LEFT) ? 2 : 1
+				button.action = IsMouseButtonReleased(.LEFT)
+			}
 
-				button.source_rec.y = f32(button.state * button.frame_height)
+			button.source_rec.y = f32(button.state * button.frame_height)
 
-				if button.action {
-					hud_destination_command = 500
-				}
+			if button.action {
+				hud_destination_command = -500
+				hud_destination_shop = SCREEN_X - 220
+			}
+
+		}
+
+
+		for &button in shop_menu {
+			button.state = 0 // TODO change this to a bitset
+			button.bounds.x = hud_alignment_shop
+
+			if CheckCollisionPointRec(mousepoint, button.bounds) {
+				button.state = IsMouseButtonDown(.LEFT) ? 2 : 1
+				button.action = IsMouseButtonReleased(.LEFT)
+			}
+
+			button.source_rec.y = f32(button.state * button.frame_height)
+
+			if button.action {
+				hud_destination_command = 0
+				hud_destination_shop = SCREEN_X + 500
 
 			}
 		}
@@ -102,6 +136,7 @@ main :: proc() {
 		ClearBackground(rl.SKYBLUE)
 		Draw_Buttons(&command_menu)
 		Draw_Buttons(&main_menu)
+		Draw_Buttons(&shop_menu)
 		rl.EndDrawing()
 	}
 }
@@ -126,25 +161,6 @@ Draw_Buttons :: proc(button_soa: ^#soa[dynamic]Button) {
 			rl.WHITE,
 		)
 	}
-}
-
-
-Button_Make_Main_Menu :: proc(buttons: ^#soa[dynamic]Button, button_texture: rl.Texture2D) {
-	frame_height := button_texture.height / BUTTON_FRAMES
-	b := Button {
-		label        = "START",
-		texture      = button_texture,
-		source_rec   = rl.Rectangle{0, 0, f32(button_texture.width), f32(frame_height)},
-		bounds       = rl.Rectangle {
-			f32(SCREEN_X / 2 - button_texture.width / 2),
-			f32(SCREEN_Y / 2 - frame_height / 2),
-			f32(button_texture.width),
-			f32(frame_height),
-		},
-		frame_height = frame_height,
-		menu_group   = .left_menu,
-	}
-	append_soa(buttons, b)
 }
 
 Make_Button :: proc(
@@ -175,10 +191,10 @@ Make_Button :: proc(
 
 Hud_Move :: proc(location, destination: ^f32) {
 	if location^ != destination^ {
-		if location < destination {
+		if location^ < destination^ {
 			location^ += HUD_SPEED
 		}
-		if location > destination {
+		if location^ > destination^ {
 			location^ -= HUD_SPEED
 		}
 	}

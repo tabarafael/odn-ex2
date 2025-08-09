@@ -4,36 +4,11 @@ package main
 import "core:fmt"
 import rl "vendor:raylib"
 
-
 SCREEN_X :: 1920
 SCREEN_Y :: 1080
 TARGET_FPS :: 60
 BUTTON_FRAMES: i32 : 3
-HUD_SPEED: f32 : 20
 FONT_SIZE: i32 : 24
-
-Button_Group :: enum {
-	left_menu,
-	right_menu,
-}
-
-Hud_State_Enum :: enum {
-	None,
-	Start,
-	Command,
-	Shop,
-}
-
-Button :: struct {
-	texture:      rl.Texture2D,
-	label:        cstring,
-	source_rec:   rl.Rectangle,
-	bounds:       rl.Rectangle,
-	state:        i32,
-	frame_height: i32,
-	action:       bool,
-	menu_group:   Button_Group,
-}
 
 Hud_State_Set :: distinct bit_set[Hud_State_Enum;u32]
 hud_state: Hud_State_Set = {.Start}
@@ -41,19 +16,23 @@ hud_state: Hud_State_Set = {.Start}
 hud_command :: []cstring{"Barracks", "Archery", "Cavalry"}
 hud_start :: []cstring{"Start"}
 hud_shop :: []cstring{"pork", "upgrade"}
+hud_wing :: []cstring{">", "<"}
 
-hud_alignment_command: f32 = -500
-hud_destination_command: f32 = hud_alignment_command // start the same
-
-hud_alignment_shop: f32 = SCREEN_X + 200
-hud_destination_shop: f32 = hud_alignment_shop
 
 main :: proc() {
 	rl.InitWindow(SCREEN_X, SCREEN_Y, "pwdm")
 	rl.SetTargetFPS(TARGET_FPS)
 	using rl
 
-	button_texture := rl.LoadTexture("resources/button.png")
+	button_texture := LoadTexture("resources/button.png")
+	button_wings_texture := LoadTexture("resources/wing.png")
+
+	hud_alignment := Hud_Alignment {
+		command_current     = MENU_LEFT_HIDDEN,
+		command_destination = MENU_LEFT_HIDDEN,
+		shop_current        = SCREEN_X + MENU_THICKNESS,
+		shop_destination    = SCREEN_X + MENU_THICKNESS,
+	}
 
 	main_menu: #soa[dynamic]Button
 	Make_Button(
@@ -64,22 +43,23 @@ main :: proc() {
 		f32(SCREEN_Y / 2 - button_texture.height),
 	)
 
+	wings_menu: #soa[dynamic]Button
+	Make_Hud_Wings_Button(&wings_menu, button_wings_texture, hud_wing, 0)
+
 	command_menu: #soa[dynamic]Button
-	Make_Button(&command_menu, button_texture, hud_command, hud_alignment_command, 0)
+	Make_Button(&command_menu, button_texture, hud_command, 0, 0)
 
 	shop_menu: #soa[dynamic]Button
-	Make_Button(&shop_menu, button_texture, hud_shop, hud_alignment_shop, 0)
+	Make_Button(&shop_menu, button_texture, hud_shop, 0, 0)
+
 
 	for !rl.WindowShouldClose() {
-		Hud_Move(&hud_alignment_command, &hud_destination_command)
-		// fmt.println(hud_alignment_shop, hud_destination_shop)
-		// fmt.println(shop_menu)
-		Hud_Move(&hud_alignment_shop, &hud_destination_shop)
+		Handle_Hud_Position(&hud_state, &hud_alignment)
 
 		mousepoint := GetMousePosition()
 		if .Start in hud_state {
 			for &button in main_menu {
-				button.state = 0 // TODO change this to a bitset
+				button.state = 0
 
 				if CheckCollisionPointRec(mousepoint, button.bounds) {
 					button.state = IsMouseButtonDown(.LEFT) ? 2 : 1
@@ -89,16 +69,14 @@ main :: proc() {
 				button.source_rec.y = f32(button.state * button.frame_height)
 
 				if button.action {
-					hud_destination_command = 0
-					hud_state = hud_state &~ {.Start}
-					clear(&main_menu)
+					hud_state = (hud_state | {.Command}) &~ {.Start}
+					clear(&main_menu) // change it to a HIDE
 				}
-
 			}
 		}
 		for &button in command_menu {
-			button.state = 0 // TODO change this to a bitset
-			button.bounds.x = hud_alignment_command
+			button.state = 0
+			button.bounds.x = hud_alignment.command_current
 
 			if CheckCollisionPointRec(mousepoint, button.bounds) {
 				button.state = IsMouseButtonDown(.LEFT) ? 2 : 1
@@ -108,16 +86,13 @@ main :: proc() {
 			button.source_rec.y = f32(button.state * button.frame_height)
 
 			if button.action {
-				hud_destination_command = -500
-				hud_destination_shop = SCREEN_X - 220
+				fmt.println("action")
 			}
-
 		}
-
 
 		for &button in shop_menu {
-			button.state = 0 // TODO change this to a bitset
-			button.bounds.x = hud_alignment_shop
+			button.state = 0
+			button.bounds.x = hud_alignment.shop_current
 
 			if CheckCollisionPointRec(mousepoint, button.bounds) {
 				button.state = IsMouseButtonDown(.LEFT) ? 2 : 1
@@ -127,75 +102,63 @@ main :: proc() {
 			button.source_rec.y = f32(button.state * button.frame_height)
 
 			if button.action {
-				hud_destination_command = 0
-				hud_destination_shop = SCREEN_X + 500
-
+				fmt.printfln("action")
 			}
 		}
+
+		for &button in wings_menu {
+			button.state = 0
+
+			if CheckCollisionPointRec(mousepoint, button.bounds) {
+				button.state = IsMouseButtonDown(.LEFT) ? 2 : 1
+				button.action = IsMouseButtonReleased(.LEFT)
+			}
+
+			button.source_rec.y = f32(button.state * button.frame_height)
+
+			if button.action {
+				fmt.println("action")
+			}
+		}
+
+		wings_menu[0].bounds.x = hud_alignment.shop_current - f32(wings_menu[0].texture.width)
+		wings_menu[1].bounds.x = hud_alignment.command_current + MENU_THICKNESS
+		for &button in wings_menu {
+			button.state = 0
+			if CheckCollisionPointRec(mousepoint, button.bounds) {
+				button.state = IsMouseButtonDown(.LEFT) ? 2 : 1
+				button.action = IsMouseButtonReleased(.LEFT)
+			}
+			button.source_rec.y = f32(button.state * button.frame_height)
+		}
+
+
+		if wings_menu[1].action {
+			hud_state = (hud_state ~ {.Command})
+		}
+		if wings_menu[0].action {
+			hud_state = (hud_state ~ {.Shop})
+		}
+
+
 		BeginDrawing()
 		ClearBackground(rl.SKYBLUE)
-		Draw_Buttons(&command_menu)
+
+
+		DrawRectangleV(
+			Vector2{hud_alignment.command_current, 0},
+			Vector2{MENU_THICKNESS, SCREEN_Y},
+			BROWN,
+		)
+		DrawRectangleV(
+			Vector2{hud_alignment.shop_current, 0},
+			Vector2{MENU_THICKNESS, SCREEN_Y},
+			BROWN,
+		)
+		Draw_Buttons(&wings_menu)
 		Draw_Buttons(&main_menu)
+		Draw_Buttons(&command_menu)
 		Draw_Buttons(&shop_menu)
 		rl.EndDrawing()
-	}
-}
-
-
-Draw_Buttons :: proc(button_soa: ^#soa[dynamic]Button) {
-	for &button in button_soa {
-		rl.DrawTextureRec(
-			button.texture,
-			button.source_rec,
-			rl.Vector2{button.bounds.x, button.bounds.y},
-			rl.WHITE,
-		)
-
-		rl.DrawText(
-			button.label,
-			i32(button.texture.width / 2) -
-			rl.MeasureText(button.label, FONT_SIZE) / 2 +
-			i32(button.bounds.x),
-			i32(button.bounds.y) - FONT_SIZE / 2 + button.frame_height / 2,
-			FONT_SIZE,
-			rl.WHITE,
-		)
-	}
-}
-
-Make_Button :: proc(
-	buttons_soa: ^#soa[dynamic]Button,
-	button_texture: rl.Texture2D,
-	buttons: []cstring,
-	hud_alignment_x: f32,
-	hud_alignment_y: f32,
-) {
-	for x, idx in buttons {
-		frame_height := button_texture.height / BUTTON_FRAMES
-		b := Button {
-			label        = x,
-			texture      = button_texture,
-			source_rec   = rl.Rectangle{0, 0, f32(button_texture.width), f32(frame_height)},
-			bounds       = rl.Rectangle {
-				hud_alignment_x,
-				hud_alignment_y + f32(frame_height * i32(idx)),
-				f32(button_texture.width),
-				f32(frame_height),
-			},
-			frame_height = frame_height,
-			menu_group   = .left_menu,
-		}
-		append_soa(buttons_soa, b)
-	}
-}
-
-Hud_Move :: proc(location, destination: ^f32) {
-	if location^ != destination^ {
-		if location^ < destination^ {
-			location^ += HUD_SPEED
-		}
-		if location^ > destination^ {
-			location^ -= HUD_SPEED
-		}
 	}
 }
